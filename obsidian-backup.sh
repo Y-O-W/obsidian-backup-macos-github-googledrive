@@ -17,15 +17,23 @@ echo "--- backup started $LOG_DATE ---"
 # Start a fresh ssh-agent and load key from macOS Keychain
 eval "$(ssh-agent -s)" > /dev/null
 /usr/bin/ssh-add --apple-load-keychain 2>/dev/null
+ssh-add -l > /dev/null 2>&1 || ERRORS+=("ssh-add: no identity loaded from keychain")
 
 cd "$VAULT" || { echo "error: vault not found at $VAULT"; notify "✗ Failed" "Vault not found"; exit 1; }
 
 # Git backup
 git add -A
 if ! git diff --cached --quiet; then
-    git commit -m "auto backup $LOG_DATE" \
-        && git push \
-        || ERRORS+=("git push failed")
+    git commit -m "auto backup $LOG_DATE" || ERRORS+=("git commit failed")
+fi
+
+# Push whatever's outstanding, whether or not this run made a new commit
+# above — catches a backlog left by a prior run whose push failed (issue #1).
+if ! git rev-parse --abbrev-ref --symbolic-full-name @{u} > /dev/null 2>&1; then
+    # No upstream tracking branch yet (first run against a fresh clone).
+    git push -u origin "$(git branch --show-current)" || ERRORS+=("git push failed (no upstream)")
+elif [ "$(git rev-list --count @{u}..HEAD)" -gt 0 ]; then
+    git push || ERRORS+=("git push failed")
 fi
 
 # Google Drive sync (skipped if DRIVE is empty)
