@@ -8,6 +8,15 @@ SSH_KEY="__SSH_KEY__"
 LOG_DATE=$(date '+%Y-%m-%d %H:%M')
 ERRORS=()
 
+# launchd runs this with a bare PATH, which resolves `git` to Apple's CLT
+# stub — it refuses to run until the Xcode license is re-accepted, which
+# happens silently after Xcode/CLT updates. Prefer Homebrew's git, which
+# isn't gated by that license, so a background run can't break this way.
+for p in /opt/homebrew/bin /usr/local/bin; do
+    [ -d "$p" ] && PATH="$p:$PATH"
+done
+export PATH
+
 notify() {
     osascript -e "display notification \"$2\" with title \"Obsidian Backup\" subtitle \"$1\"" 2>/dev/null
 }
