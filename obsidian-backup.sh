@@ -23,10 +23,17 @@ notify() {
 
 echo "--- backup started $LOG_DATE ---"
 
-# Start a fresh ssh-agent and load key from macOS Keychain
+# Start a fresh ssh-agent and load key from macOS Keychain.
+# The login keychain isn't always reachable the instant this LaunchAgent
+# fires (e.g. right at login/wake, before the keychain finishes unlocking),
+# so retry a few times before giving up rather than failing on the first try.
 eval "$(ssh-agent -s)" > /dev/null
-/usr/bin/ssh-add --apple-load-keychain 2>/dev/null
-ssh-add -l > /dev/null 2>&1 || ERRORS+=("ssh-add: no identity loaded from keychain")
+for attempt in 1 2 3; do
+    /usr/bin/ssh-add --apple-load-keychain 2>/dev/null
+    ssh-add -l > /dev/null 2>&1 && break
+    sleep 5
+done
+ssh-add -l > /dev/null 2>&1 || ERRORS+=("ssh-add: no identity loaded from keychain after 3 attempts")
 
 cd "$VAULT" || { echo "error: vault not found at $VAULT"; notify "✗ Failed" "Vault not found"; exit 1; }
 
@@ -52,12 +59,15 @@ if [ -n "$DRIVE" ]; then
 fi
 
 # Result
+RESULT_CODE=0
 if [ ${#ERRORS[@]} -eq 0 ]; then
     echo "backup ok"
     notify "✓ Success" "Vault backed up"
 else
     echo "backup failed: ${ERRORS[*]}"
     notify "✗ Failed" "${ERRORS[*]}"
+    RESULT_CODE=1
 fi
 
 kill "$SSH_AGENT_PID" 2>/dev/null
+exit $RESULT_CODE
