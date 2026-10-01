@@ -134,6 +134,24 @@ backup failed: git push failed
 
 ---
 
+## Troubleshooting
+
+### `ssh-add: no identity loaded from keychain`
+
+If the log shows this error (and pushes start failing with `Permission denied (publickey)`), macOS has revoked the Keychain's "always allow" grant for `ssh-add` — this commonly happens after a macOS update, since the grant is tied to the binary's code signature. The LaunchAgent runs with no GUI session, so it can't see or answer the re-authorization prompt, and `ssh-add` just fails silently on every run until you re-grant it by hand:
+
+```bash
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+```
+
+macOS will show a dialog: *"ssh-add" wants to use your confidential information stored in "id_ed25519" in your keychain.* Click **Always Allow** (not just "Allow") — this re-grants the ACL to `ssh-add`'s current signature so background runs can use it without prompting again.
+
+If no dialog appears and it still fails, open **Keychain Access.app** → login keychain → find your key → **Access Control** tab → confirm `ssh-add` is listed under "Always allow access by these applications."
+
+> Check `~/Library/Logs/obsidian-backup.log` after any major macOS update if you notice GitHub hasn't received new commits — this is the most likely cause.
+
+---
+
 ## Uninstall
 
 ```bash

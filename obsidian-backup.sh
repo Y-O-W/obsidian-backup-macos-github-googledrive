@@ -28,12 +28,14 @@ echo "--- backup started $LOG_DATE ---"
 # fires (e.g. right at login/wake, before the keychain finishes unlocking),
 # so retry a few times before giving up rather than failing on the first try.
 eval "$(ssh-agent -s)" > /dev/null
-for attempt in 1 2 3; do
+SSH_ADD_ATTEMPTS=8
+SSH_ADD_INTERVAL=15
+for attempt in $(seq 1 "$SSH_ADD_ATTEMPTS"); do
     /usr/bin/ssh-add --apple-load-keychain 2>/dev/null
     ssh-add -l > /dev/null 2>&1 && break
-    sleep 5
+    sleep "$SSH_ADD_INTERVAL"
 done
-ssh-add -l > /dev/null 2>&1 || ERRORS+=("ssh-add: no identity loaded from keychain after 3 attempts")
+ssh-add -l > /dev/null 2>&1 || ERRORS+=("ssh-add: no identity loaded from keychain after $SSH_ADD_ATTEMPTS attempts")
 
 cd "$VAULT" || { echo "error: vault not found at $VAULT"; notify "✗ Failed" "Vault not found"; exit 1; }
 
