@@ -1,25 +1,26 @@
 # obsidian-backup-macos-github-googledrive
 
-Automated daily backup of an [Obsidian](https://obsidian.md) vault to **GitHub** and **Google Drive** on macOS, using a shell script scheduled via launchd.
+Automatic backup of an [Obsidian](https://obsidian.md) vault on macOS, run by a launchd agent:
 
-- Commits and pushes new/changed notes to a private GitHub repo
-- Mirrors the vault to a local Google Drive folder (synced to the cloud by Google Drive for Desktop)
-- Sends a macOS notification on success or failure
-- Runs at a scheduled time daily, and also at login to catch missed runs when the laptop was closed
+- **GitHub** – commits and pushes changes to a private repo
+- **Google Drive** – mirrors the vault into a local Drive folder (optional)
+- **Notifications** – a macOS notification on success or failure
 
----
+It runs daily at a time you choose, at login, and hourly. A run that fails (offline, asleep, …) is retried within the hour, and every run pushes any commits still outstanding.
 
-## Prerequisites
+## How it works
 
-- macOS (tested on Ventura and later)
-- Git installed (`xcode-select --install` if missing)
-- Obsidian vault already initialised as a git repo with a GitHub remote
-- Google Drive for Desktop installed (optional — skip if you only want GitHub backup)
-- SSH key added to your GitHub account
+`obsidian-backup.sh` runs `git add` → `commit` → `push`, then `rsync`s the vault to Drive. It authenticates to GitHub with a **dedicated deploy key**: a passphrase-less key scoped to the vault repo only. No ssh-agent or Keychain is involved, which keeps unattended runs working (see [Troubleshooting](#troubleshooting)).
 
----
+## Requirements
 
-## Quick install
+- macOS Ventura or later
+- Git (`xcode-select --install` if missing)
+- A vault that is already a git repo with a GitHub remote
+- [GitHub CLI](https://cli.github.com), authenticated, to register the deploy key automatically (otherwise add it by hand)
+- Google Drive for Desktop (optional)
+
+## Install
 
 ```bash
 git clone https://github.com/Y-O-W/obsidian-backup-macos-github-googledrive.git
@@ -27,135 +28,107 @@ cd obsidian-backup-macos-github-googledrive
 bash install.sh
 ```
 
-The installer will ask for:
+The installer asks for:
 
 | Prompt | Example |
 |--------|---------|
-| Obsidian vault path | `~/Documents/MyVault` |
-| Google Drive folder path | `~/Library/CloudStorage/GoogleDrive-you@gmail.com/My Drive/obsidian` |
-| SSH key path | `~/.ssh/id_ed25519` |
+| Vault path | `~/Documents/MyVault` |
+| Google Drive folder (blank to skip) | `~/Library/CloudStorage/GoogleDrive-you@gmail.com/My Drive/obsidian` |
+| Deploy key path | `~/.ssh/obsidian_backup_deploy` (created if missing) |
 | Daily run time | `09:00` |
 
-It then installs the script, configures the SSH keychain, and loads the LaunchAgent.
+It then installs the script to `~/.local/bin`, creates and registers the deploy key (or prints the public key to add manually), and loads the LaunchAgent.
 
----
+**Google Drive only:** macOS blocks background processes from `~/Library/CloudStorage`. Grant access under *System Settings → Privacy & Security → Full Disk Access → add `/bin/bash`*.
 
 ## Manual setup
 
-### 1. Copy and configure the backup script
+Skip this if you used the installer.
 
-```bash
-mkdir -p ~/.local/bin
-cp obsidian-backup.sh ~/.local/bin/obsidian-backup.sh
-chmod +x ~/.local/bin/obsidian-backup.sh
-```
+1. **Script** – copy it and set the variables at the top:
 
-Open `~/.local/bin/obsidian-backup.sh` and set the three variables at the top:
+   ```bash
+   mkdir -p ~/.local/bin
+   cp obsidian-backup.sh ~/.local/bin/ && chmod +x ~/.local/bin/obsidian-backup.sh
+   ```
 
-```bash
-VAULT="$HOME/Obsidian"          # path to your vault
-DRIVE=""                         # path to local Google Drive folder, or leave empty
-SSH_KEY="$HOME/.ssh/id_ed25519" # path to your SSH key
-```
+   ```bash
+   VAULT="$HOME/Obsidian"                      # path to your vault
+   DRIVE=""                                    # local Google Drive folder, or empty to skip
+   SSH_KEY="$HOME/.ssh/obsidian_backup_deploy" # deploy key from step 2
+   ```
 
-### 2. Store your SSH key in the macOS Keychain
+2. **Deploy key** – create it and register it with write access:
 
-This lets the script authenticate to GitHub without a running terminal session:
+   ```bash
+   ssh-keygen -t ed25519 -N "" -C "obsidian-backup deploy key" -f ~/.ssh/obsidian_backup_deploy
+   gh repo deploy-key add ~/.ssh/obsidian_backup_deploy.pub \
+      --repo YOUR_USER/YOUR_VAULT_REPO --title "obsidian-backup launchd" --allow-write
+   ```
 
-```bash
-ssh-add --apple-use-keychain ~/.ssh/id_ed25519
-```
+   Without `gh`: paste the `.pub` contents into the repo's *Settings → Deploy keys* and tick *Allow write access*.
 
-Add to `~/.ssh/config` (create if it doesn't exist):
+3. **LaunchAgent** – copy `com.example.obsidian-backup.plist` to `~/Library/LaunchAgents/com.$(whoami).obsidian-backup.plist`, replace the placeholders, then load it:
 
-```
-Host *
-  UseKeychain yes
-  AddKeysToAgent yes
-  IdentityFile ~/.ssh/id_ed25519
-```
+   | Placeholder | Value |
+   |-------------|-------|
+   | `__LABEL__` | `com.yourusername.obsidian-backup` |
+   | `__SCRIPT__` | `/Users/yourusername/.local/bin/obsidian-backup.sh` |
+   | `__HOUR__` / `__MINUTE__` | run time, e.g. `9` / `0` |
+   | `__LOG__` | `/Users/yourusername/Library/Logs/obsidian-backup.log` |
 
-### 3. Install the LaunchAgent
+   ```bash
+   launchctl load ~/Library/LaunchAgents/com.$(whoami).obsidian-backup.plist
+   ```
 
-Copy the plist template and replace placeholders:
+## Usage
 
-```bash
-cp com.example.obsidian-backup.plist \
-   ~/Library/LaunchAgents/com.$(whoami).obsidian-backup.plist
-```
-
-Edit the copy and replace:
-- `__LABEL__` → `com.yourusername.obsidian-backup`
-- `__SCRIPT__` → `/Users/yourusername/.local/bin/obsidian-backup.sh`
-- `__HOUR__` / `__MINUTE__` → your preferred run time (e.g. `9` / `0`)
-- `__LOG__` → `/Users/yourusername/Library/Logs/obsidian-backup.log`
-
-Load it:
-
-```bash
-launchctl load ~/Library/LaunchAgents/com.$(whoami).obsidian-backup.plist
-```
-
-### 4. Grant Full Disk Access (Google Drive sync only)
-
-macOS blocks background processes from accessing `~/Library/CloudStorage`. To fix this:
-
-> **System Settings → Privacy & Security → Full Disk Access → add `/bin/bash`**
-
----
-
-## Running manually
+Run a backup now:
 
 ```bash
 bash ~/.local/bin/obsidian-backup.sh
 ```
 
----
-
-## Log
+Follow the log (`~/Library/Logs/obsidian-backup.log`):
 
 ```bash
 tail -f ~/Library/Logs/obsidian-backup.log
 ```
-
-Each run appends a timestamped entry:
 
 ```
 --- backup started 2026-07-04 09:00 ---
 backup ok
 ```
 
-or on failure:
-
-```
---- backup started 2026-07-04 09:00 ---
-backup failed: git push failed
-```
-
----
+A failure ends with `backup failed: <reasons>` instead, e.g. `git push failed`.
 
 ## Troubleshooting
 
-### `ssh-add: no identity loaded from keychain`
+### `Permission denied (publickey)` or `deploy key not readable`
 
-If the log shows this error (and pushes start failing with `Permission denied (publickey)`), macOS has revoked the Keychain's "always allow" grant for `ssh-add` — this commonly happens after a macOS update, since the grant is tied to the binary's code signature. The LaunchAgent runs with no GUI session, so it can't see or answer the re-authorization prompt, and `ssh-add` just fails silently on every run until you re-grant it by hand:
+Check that the key exists, is registered, and can write (`read_only` must be `false`):
 
 ```bash
-ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+ls -l ~/.ssh/obsidian_backup_deploy
+gh api repos/YOUR_USER/YOUR_VAULT_REPO/keys --jq '.[] | {title, read_only}'
+GIT_SSH_COMMAND="ssh -i ~/.ssh/obsidian_backup_deploy -o IdentitiesOnly=yes -o IdentityAgent=none" \
+  git -C ~/Obsidian ls-remote origin HEAD
 ```
 
-macOS will show a dialog: *"ssh-add" wants to use your confidential information stored in "id_ed25519" in your keychain.* Click **Always Allow** (not just "Allow") — this re-grants the ACL to `ssh-add`'s current signature so background runs can use it without prompting again.
+### `ssh-add: no identity loaded from keychain` (older versions)
 
-If no dialog appears and it still fails, open **Keychain Access.app** → login keychain → find your key → **Access Control** tab → confirm `ssh-add` is listed under "Always allow access by these applications."
+Early versions loaded your personal SSH key from the Keychain with `ssh-add --apple-load-keychain`. This broke repeatedly on unattended runs (issues [#1](../../issues/1), [#2](../../issues/2)):
 
-> Check `~/Library/Logs/obsidian-backup.log` after any major macOS update if you notice GitHub hasn't received new commits — this is the most likely cause.
+- After a macOS update, the Keychain's "always allow" grant for `ssh-add` is revoked, because it is tied to the binary's code signature. A background LaunchAgent has no GUI session to re-approve it, so `ssh-add` fails silently on every run.
+- The Keychain can also be unreachable for minutes after a scheduled or dark wake, so retrying doesn't help.
 
----
+The deploy key avoids both. If you still see this message, you are running an old copy of the script: re-run `install.sh`.
 
 ## Uninstall
 
 ```bash
 launchctl unload ~/Library/LaunchAgents/com.$(whoami).obsidian-backup.plist
-rm ~/Library/LaunchAgents/com.$(whoami).obsidian-backup.plist
-rm ~/.local/bin/obsidian-backup.sh
+rm ~/Library/LaunchAgents/com.$(whoami).obsidian-backup.plist ~/.local/bin/obsidian-backup.sh
 ```
+
+Optionally remove the deploy key from the repo's *Settings → Deploy keys* and delete `~/.ssh/obsidian_backup_deploy*`.

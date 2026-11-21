@@ -23,19 +23,17 @@ notify() {
 
 echo "--- backup started $LOG_DATE ---"
 
-# Start a fresh ssh-agent and load key from macOS Keychain.
-# The login keychain isn't always reachable the instant this LaunchAgent
-# fires (e.g. right at login/wake, before the keychain finishes unlocking),
-# so retry a few times before giving up rather than failing on the first try.
-eval "$(ssh-agent -s)" > /dev/null
-SSH_ADD_ATTEMPTS=8
-SSH_ADD_INTERVAL=15
-for attempt in $(seq 1 "$SSH_ADD_ATTEMPTS"); do
-    /usr/bin/ssh-add --apple-load-keychain 2>/dev/null
-    ssh-add -l > /dev/null 2>&1 && break
-    sleep "$SSH_ADD_INTERVAL"
-done
-ssh-add -l > /dev/null 2>&1 || ERRORS+=("ssh-add: no identity loaded from keychain after $SSH_ADD_ATTEMPTS attempts")
+# Authenticate with a dedicated, passphrase-less deploy key (issue #2).
+# The previous approach (ssh-agent + `ssh-add --apple-load-keychain`) failed
+# on unattended launchd runs: the login keychain was unreachable for minutes
+# after a scheduled/dark wake, so no identity could be loaded. A deploy key
+# needs no agent and no keychain. IdentityAgent=none + IdentitiesOnly make
+# sure only this key is offered, never a stale agent or keychain identity.
+if [ -r "$SSH_KEY" ]; then
+    export GIT_SSH_COMMAND="ssh -i \"$SSH_KEY\" -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes"
+else
+    ERRORS+=("deploy key not readable at $SSH_KEY")
+fi
 
 cd "$VAULT" || { echo "error: vault not found at $VAULT"; notify "✗ Failed" "Vault not found"; exit 1; }
 
@@ -71,5 +69,4 @@ else
     RESULT_CODE=1
 fi
 
-kill "$SSH_AGENT_PID" 2>/dev/null
 exit $RESULT_CODE

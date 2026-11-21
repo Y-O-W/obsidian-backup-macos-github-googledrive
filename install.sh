@@ -18,10 +18,9 @@ read -rp "Google Drive folder path (leave blank to skip): " DRIVE
 DRIVE="${DRIVE/#\~/$HOME}"
 
 # ─── SSH key ─────────────────────────────────────────────────────────────────
-read -rp "SSH key path [$HOME/.ssh/id_ed25519]: " SSH_KEY
-SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
+read -rp "Deploy key path [$HOME/.ssh/obsidian_backup_deploy]: " SSH_KEY
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/obsidian_backup_deploy}"
 SSH_KEY="${SSH_KEY/#\~/$HOME}"
-[ -f "$SSH_KEY" ] || { echo "Error: SSH key not found: $SSH_KEY"; exit 1; }
 
 # ─── Schedule ────────────────────────────────────────────────────────────────
 read -rp "Daily run time, 24h HH:MM [09:00]: " RUN_TIME
@@ -43,15 +42,29 @@ sed \
     "$REPO_DIR/obsidian-backup.sh" > "$SCRIPT_DEST"
 chmod +x "$SCRIPT_DEST"
 
-# ─── Ensure SSH key is in macOS Keychain ─────────────────────────────────────
-echo "→ Adding SSH key to macOS Keychain..."
-/usr/bin/ssh-add --apple-use-keychain "$SSH_KEY" 2>/dev/null || true
+# ─── Deploy key (no ssh-agent / Keychain involved) ───────────────────────────
+if [ -f "$SSH_KEY" ]; then
+    echo "→ Using existing deploy key: $SSH_KEY"
+else
+    echo "→ Creating deploy key..."
+    mkdir -p "$(dirname "$SSH_KEY")"
+    ssh-keygen -t ed25519 -N "" -C "obsidian-backup deploy key ($(hostname -s))" -f "$SSH_KEY" > /dev/null
+    chmod 600 "$SSH_KEY"
 
-# Ensure UseKeychain is set in ~/.ssh/config
-if ! grep -q "UseKeychain yes" "$HOME/.ssh/config" 2>/dev/null; then
-    mkdir -p "$HOME/.ssh"
-    printf "\nHost *\n  UseKeychain yes\n  AddKeysToAgent yes\n  IdentityFile %s\n" "$SSH_KEY" >> "$HOME/.ssh/config"
-    chmod 600 "$HOME/.ssh/config"
+    REPO_SLUG=$(git -C "$VAULT" remote get-url origin 2>/dev/null \
+        | sed -E 's#^(git@[^:]+:|https?://[^/]+/)##; s#\.git$##')
+    if command -v gh > /dev/null && [ -n "$REPO_SLUG" ] \
+        && gh repo deploy-key add "$SSH_KEY.pub" --repo "$REPO_SLUG" \
+            --title "obsidian-backup launchd ($(hostname -s))" --allow-write; then
+        echo "  registered as write-enabled deploy key on $REPO_SLUG"
+    else
+        echo ""
+        echo "  ACTION REQUIRED: add this public key under the repo's"
+        echo "  Settings → Deploy keys, with 'Allow write access' ticked:"
+        echo ""
+        cat "$SSH_KEY.pub"
+        echo ""
+    fi
 fi
 
 # ─── Install LaunchAgent ─────────────────────────────────────────────────────

@@ -16,6 +16,11 @@
         <key>Minute</key>
         <integer>__MINUTE__</integer>
     </dict>
+    <!-- Hourly safety net: a run that fails (offline, asleep, etc.) is retried
+         within the hour instead of waiting for the next daily run. The script
+         is idempotent and only commits/pushes when there is something to do. -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
