@@ -23,8 +23,8 @@ SSH_KEY="${SSH_KEY:-$HOME/.ssh/obsidian_backup_deploy}"
 SSH_KEY="${SSH_KEY/#\~/$HOME}"
 
 # ─── Schedule ────────────────────────────────────────────────────────────────
-read -rp "Daily run time, 24h HH:MM [09:00]: " RUN_TIME
-RUN_TIME="${RUN_TIME:-09:00}"
+read -rp "Daily run time, 24h HH:MM [03:00]: " RUN_TIME
+RUN_TIME="${RUN_TIME:-03:00}"
 HOUR="${RUN_TIME%%:*}"
 MINUTE="${RUN_TIME##*:}"
 
@@ -39,6 +39,8 @@ sed \
     -e "s|__VAULT__|$VAULT|g" \
     -e "s|__DRIVE__|$DRIVE|g" \
     -e "s|__SSH_KEY__|$SSH_KEY|g" \
+    -e "s|__HOUR__|$HOUR|g" \
+    -e "s|__MINUTE__|$MINUTE|g" \
     "$REPO_DIR/obsidian-backup.sh" > "$SCRIPT_DEST"
 chmod +x "$SCRIPT_DEST"
 
@@ -103,4 +105,4 @@ echo "  LaunchAgent: $PLIST_DEST"
 echo "  Log:         $LOG_PATH"
 echo ""
 echo "  Run manually:"
-echo "  bash $SCRIPT_DEST"
+echo "  bash $SCRIPT_DEST --force"

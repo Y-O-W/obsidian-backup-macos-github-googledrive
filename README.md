@@ -6,7 +6,7 @@ Automatic backup of an [Obsidian](https://obsidian.md) vault on macOS, run by a 
 - **Google Drive** – mirrors the vault into a local Drive folder (optional)
 - **Notifications** – a macOS notification on success or failure
 
-It runs daily at a time you choose, at login, and hourly. A run that fails (offline, asleep, …) is retried within the hour, and every run pushes any commits still outstanding.
+It runs daily at a time you choose (default 03:00). launchd also triggers it at login and hourly, but only as a retry net: once a run succeeds, further triggers skip silently (no notification) until the next daily run. A run that fails (offline, asleep, …) is retried within the hour, and every run pushes any commits still outstanding.
 
 ## How it works
 
@@ -35,7 +35,7 @@ The installer asks for:
 | Vault path | `~/Documents/MyVault` |
 | Google Drive folder (blank to skip) | `~/Library/CloudStorage/GoogleDrive-you@gmail.com/My Drive/obsidian` |
 | Deploy key path | `~/.ssh/obsidian_backup_deploy` (created if missing) |
-| Daily run time | `09:00` |
+| Daily run time | `03:00` |
 
 It then installs the script to `~/.local/bin`, creates and registers the deploy key (or prints the public key to add manually), and loads the LaunchAgent.
 
@@ -74,7 +74,7 @@ Skip this if you used the installer.
    |-------------|-------|
    | `__LABEL__` | `com.yourusername.obsidian-backup` |
    | `__SCRIPT__` | `/Users/yourusername/.local/bin/obsidian-backup.sh` |
-   | `__HOUR__` / `__MINUTE__` | run time, e.g. `9` / `0` |
+   | `__HOUR__` / `__MINUTE__` | run time, e.g. `3` / `0` (also fill `__HOUR__` / `__MINUTE__` in the script) |
    | `__LOG__` | `/Users/yourusername/Library/Logs/obsidian-backup.log` |
 
    ```bash
@@ -86,8 +86,10 @@ Skip this if you used the installer.
 Run a backup now:
 
 ```bash
-bash ~/.local/bin/obsidian-backup.sh
+bash ~/.local/bin/obsidian-backup.sh --force
 ```
+
+(`--force` bypasses the "already succeeded this cycle" skip; state lives in `~/.local/state/obsidian-backup/last-success`.)
 
 Follow the log (`~/Library/Logs/obsidian-backup.log`):
 

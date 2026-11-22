@@ -16,9 +16,9 @@
         <key>Minute</key>
         <integer>__MINUTE__</integer>
     </dict>
-    <!-- Hourly safety net: a run that fails (offline, asleep, etc.) is retried
-         within the hour instead of waiting for the next daily run. The script
-         is idempotent and only commits/pushes when there is something to do. -->
+    <!-- Retry net: a run that fails (offline, asleep, etc.) is retried within
+         the hour. Once a run succeeds, the script skips silently (no
+         notification) until the next daily run time. -->
     <key>StartInterval</key>
     <integer>3600</integer>
     <key>RunAtLoad</key>

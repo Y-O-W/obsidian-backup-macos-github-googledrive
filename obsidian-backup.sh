@@ -3,6 +3,8 @@
 VAULT="__VAULT__"
 DRIVE="__DRIVE__"       # leave empty to skip Google Drive sync
 SSH_KEY="__SSH_KEY__"
+RUN_HOUR="__HOUR__"     # daily run time; defines the start of each backup "cycle"
+RUN_MINUTE="__MINUTE__"
 # ────────────────────────────────────────────────────────────────────────────
 
 LOG_DATE=$(date '+%Y-%m-%d %H:%M')
@@ -20,6 +22,23 @@ export PATH
 notify() {
     osascript -e "display notification \"$2\" with title \"Obsidian Backup\" subtitle \"$1\"" 2>/dev/null
 }
+
+# Once a run succeeds, stay quiet until the next scheduled run. launchd also
+# fires hourly and at login as a retry net (issue #2); those extra triggers
+# exit here when this cycle (= since the most recent daily run time) already
+# has a successful backup. Pass --force to run regardless.
+STATE_DIR="$HOME/.local/state/obsidian-backup"
+STAMP="$STATE_DIR/last-success"
+now=$(date +%s)
+cycle_start=$(date -j -f '%Y-%m-%d %H:%M:%S' "$(date +%Y-%m-%d) $RUN_HOUR:$RUN_MINUTE:00" +%s 2>/dev/null)
+if [ -n "$cycle_start" ]; then
+    [ "$now" -lt "$cycle_start" ] && cycle_start=$((cycle_start - 86400))
+    last_ok=$(cat "$STAMP" 2>/dev/null)
+    if [ "$1" != "--force" ] && [ "${last_ok:-0}" -ge "$cycle_start" ] 2>/dev/null; then
+        echo "--- $LOG_DATE: already backed up this cycle, skipping ---"
+        exit 0
+    fi
+fi
 
 echo "--- backup started $LOG_DATE ---"
 
@@ -62,6 +81,7 @@ fi
 RESULT_CODE=0
 if [ ${#ERRORS[@]} -eq 0 ]; then
     echo "backup ok"
+    mkdir -p "$STATE_DIR" && echo "$now" > "$STAMP"
     notify "✓ Success" "Vault backed up"
 else
     echo "backup failed: ${ERRORS[*]}"
